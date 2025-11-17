@@ -1,0 +1,269 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ModuleType {
+  VIDEO
+  TEXT
+  QUIZ
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  DROPPED
+}
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  SHORT_ANSWER
+}
+
+enum NotificationType {
+  ANNOUNCEMENT
+  QUIZ_REMINDER
+  COURSE_UPDATE
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  password        String
+  firstName       String
+  lastName        String
+  role            UserRole @default(STUDENT)
+  avatar          String?
+  isEmailVerified Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  coursesAsInstructor Course[]        @relation("CourseInstructor")
+  enrollments         Enrollment[]
+  quizAttempts        QuizAttempt[]
+  announcements       Announcement[]
+  notifications       Notification[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  courses Course[]
+
+  @@map("categories")
+}
+
+model Course {
+  id          String        @id @default(uuid())
+  title       String
+  description String        @db.Text
+  thumbnail   String?
+  price       Decimal       @default(0) @db.Decimal(10, 2)
+  isFree      Boolean       @default(true)
+  status      CourseStatus  @default(DRAFT)
+  level       CourseLevel   @default(BEGINNER)
+  duration    Int?          // in minutes
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  categoryId   String
+  category     Category      @relation(fields: [categoryId], references: [id])
+  instructorId String
+  instructor   User          @relation("CourseInstructor", fields: [instructorId], references: [id])
+  modules      Module[]
+  enrollments  Enrollment[]
+  announcements Announcement[]
+
+  @@map("courses")
+}
+
+model Module {
+  id          String     @id @default(uuid())
+  courseId    String
+  title       String
+  description String?    @db.Text
+  order       Int
+  type        ModuleType
+  content     String?    @db.Text
+  videoUrl    String?
+  duration    Int?       // in minutes
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  quiz          Quiz?
+  moduleProgress ModuleProgress[]
+
+  @@map("modules")
+}
+
+model Enrollment {
+  id          String           @id @default(uuid())
+  studentId   String
+  courseId    String
+  progress    Int              @default(0) // percentage
+  completedAt DateTime?
+  enrolledAt  DateTime         @default(now())
+  status      EnrollmentStatus @default(ACTIVE)
+
+  // Relations
+  student      User            @relation(fields: [studentId], references: [id])
+  course       Course          @relation(fields: [courseId], references: [id])
+  moduleProgress ModuleProgress[]
+  certificates Certificate[]
+
+  @@unique([studentId, courseId])
+  @@map("enrollments")
+}
+
+model ModuleProgress {
+  id            String     @id @default(uuid())
+  enrollmentId  String
+  moduleId      String
+  isCompleted   Boolean    @default(false)
+  completedAt   DateTime?
+  lastAccessedAt DateTime  @default(now())
+
+  // Relations
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  module        Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, moduleId])
+  @@map("module_progress")
+}
+
+model Quiz {
+  id           String   @id @default(uuid())
+  moduleId     String   @unique
+  title        String
+  description  String?  @db.Text
+  timeLimit    Int?     // in minutes
+  passingScore Int      @default(70) // percentage
+  isRandomized Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  // Relations
+  module       Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions    Question[]
+  quizAttempts QuizAttempt[]
+
+  @@map("quizzes")
+}
+
+model Question {
+  id            String       @id @default(uuid())
+  quizId        String
+  question      String       @db.Text
+  type          QuestionType
+  options       Json?        // for MCQ
+  correctAnswer String       @db.Text
+  points        Int          @default(1)
+  order         Int
+
+  // Relations
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("questions")
+}
+
+model QuizAttempt {
+  id             String   @id @default(uuid())
+  studentId      String
+  quizId         String
+  score          Int      // percentage
+  totalQuestions Int
+  correctAnswers Int
+  startedAt      DateTime @default(now())
+  submittedAt    DateTime?
+  answers        Json     // student answers
+
+  // Relations
+  student User @relation(fields: [studentId], references: [id])
+  quiz    Quiz @relation(fields: [quizId], references: [id])
+
+  @@map("quiz_attempts")
+}
+
+model Certificate {
+  id               String   @id @default(uuid())
+  enrollmentId     String   @unique
+  certificateNumber String  @unique
+  issuedAt         DateTime @default(now())
+  pdfUrl           String?
+  template         String   @default("default")
+
+  // Relations
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("certificates")
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  courseId  String
+  authorId  String
+  title     String
+  content   String   @db.Text
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@map("announcements")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
